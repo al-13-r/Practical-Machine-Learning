@@ -1,0 +1,158 @@
+---
+title: "Practical Machine Learning Project"
+author: "Angelika"
+date: "December 11, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+## Problem Description (from Instructor)
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These types of devices are part of the quantified self-movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, the goal is to use data from accelerometers on the belt, forearm, arm, and dumbbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+The goal of your project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set.
+
+## Loading the data
+
+The code below creates a "coursera_practical_machine_learning" directory within user's current working directory, downloads both the train and test datafiles directly from the source, and reads them in using the data.table package. The first few entries of the dataset are presented in the output below.
+
+```{r}
+library("data.table")
+
+if (!file.exists("coursera_practical_machine_learning")){dir.create("coursera_practical_machine_learning")}
+fileUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+download.file(fileUrl, destfile = "./coursera_practical_machine_learning/pml-training.csv", method = "curl")
+
+train<-read.csv("./coursera_practical_machine_learning/pml-training.csv", header=TRUE)
+
+fileUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download.file(fileUrl, destfile = "./coursera_practical_machine_learning/pml-testing.csv", method = "curl")
+
+test<-read.csv("./coursera_practical_machine_learning/pml-testing.csv", header=TRUE)
+
+head(train)
+```
+
+## Date Cleaning and Pre-Processing
+
+There appear to be some columns that have a lot of null values, perhaps even the entire column is null. We remove such columns for both the test and train datasets.
+
+```{r}
+library(dplyr)
+dim(train)
+not_any_na <- function(x) all(!is.na(x))
+train<-train %>% select_if(not_any_na)
+test<-test %>% select_if(not_any_na)
+head(train)
+```
+
+We started out with 160 variables and now have 93. Additionally, the first few columns do not contain information regarding how well an activity is performed and mostly serve the role of primary keys for these data. For the purposes of the analysis, they can be ignored and, hence, removed from the dataset. 
+
+```{r}
+train<- train[,-c(1:7)]
+test<- test[,-c(1:7)]
+dim(train)
+```
+```{r}
+dim(test)
+```
+
+We are not left with 86 variables in the train set and 52 variables in the test set. Since we need to have the same variables in both the training and testing steps, we remove the columns from the train set that are not part of the test set.
+
+```{r}
+names<-names(test)
+names<-append(names, "classe")
+train<-train[,names(train) %in% names]
+dim(train)
+```
+
+We now have comparable datasets and now we can move onto modeling stage. We note that the train data includes the variable "classe", which we are attempting to predict.
+
+## Splitting Data into Train and Validate Sets
+
+We split training data into the train and validation sets in the traditional 70/30 manner. The validation set will be used to estimate an out-of-sample error.
+
+```{r}
+library(caret)
+inTrain = createDataPartition(train$classe, p = 0.70)[[1]]
+training= train[ inTrain,]
+validation = train[-inTrain,]
+```
+
+## Modeling Using Classification Tree
+
+We first fit a classification tree model to these data.
+
+```{r}
+library(rpart)
+library(rpart.plot)
+tree_model<- train(classe~., data=training, method="rpart")
+tree_model$finalModel
+```
+
+Next, we visualize the tree model via a graphic.
+
+```{r}
+rpart.plot(tree_model$finalModel, box.palette="RdBu", shadow.col="gray", nn=TRUE)
+```
+
+Note that rpart automatically performs 10-fold cross-validation when growing a tree. The variables used in the final tree are magnet_dumbbell_y, pitch_forearm, roll_bel, roll_forearm with the relative error of 71 %. 
+
+We can estimate the out of sample error by applying the trained model on the validation set. 
+
+```{r}
+validate_tree <- predict(tree_model$finalModel, validation, type="class")
+confusionMatrix(validation$classe, validate_tree)
+```
+
+The accuracy does not look too good but overall, the model is statistically significant, so we use it for the final prediction.
+
+```{r}
+test_tree <- predict(tree_model$finalModel,test, type="class")
+test_tree
+```
+
+Unfortunately, after submitting these results to the quiz engine, I did not pass the assignment. 
+
+## Modeling with Random Forest
+
+So, I try a random forest next because it uses an ensemble of trees so maybe it will work better. First, I train the model
+
+```{r}
+random_forest <- train(classe ~ ., data = train, method = "rf")
+print(random_forest)
+```
+
+Then, estimate an out-of-sample error on the validation set and display the confusion matrix.
+
+```{r}
+validate <- predict(random_forest, validation)
+# Show prediction result
+confusionMatrix(validation$classe, validate)
+```
+
+Finally, pass the quiz with the following predictions
+
+```{r}
+predict(random_forest, test)
+```
+
+## Conclusions
+
+In this project we have examined exercise data and were able to characterize the quality of the exercise using only a few variables. We have leveraged a random forest model to achieve a high classification on both in-sample and out-of-sample data. We conclude that ensemble models rock and that the government can recruit the future generation of secret service agents by hacking into the fitness watches of the daily users of such devices!
+
+## References
+
+In preparing this report, I have consulted the following web-sites
+
+https://stackoverflow.com/questions/2643939/remove-columns-from-dataframe-where-all-values-are-na
+
+https://stackoverflow.com/questions/33282174/r-caret-package-error-createdataparition-no-observation
+
+https://blog.exploratory.io/visualizing-a-decision-tree-using-r-packages-in-explortory-b26d4cb5e71f
+
+https://www.gormanalysis.com/blog/decision-trees-in-r-using-rpart/
+
+https://stackoverflow.com/questions/39620287/how-to-create-a-confusion-matrix-for-a-decision-tree-model
